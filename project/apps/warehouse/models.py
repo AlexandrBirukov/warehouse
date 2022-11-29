@@ -14,6 +14,9 @@ class WarehouseQuerySet(models.QuerySet):
 
 
 class Warehouse(BaseModel):
+    """
+    Склад
+    """
     place = models.ForeignKey(
         Place,
         verbose_name='Ресторан',
@@ -61,6 +64,14 @@ class DepartmentQuerySet(models.QuerySet):
 
 
 class Department(BaseModel):
+    """
+    Департамент
+
+    могут быть как для хранения, так и для потребления
+    ---
+    пример департамента хранения: холодильник, овощи, алкоголь
+    пример департамента потребления: бар, кухня, зал
+    """
     Warehouse = models.ForeignKey(
         Warehouse,
         verbose_name='Склад',
@@ -103,16 +114,6 @@ class Department(BaseModel):
         return self.title
 
 
-class MeasurementSystems:
-    METRIC = 0
-    IMPERIAL = 1
-
-    MEASUREMENT_SYSTEMS_CHOICES = [
-        (METRIC, 'Метрическая'),
-        (IMPERIAL, 'Имперская'),
-    ]
-
-
 class MeasureUnitQuerySet(models.QuerySet):
     """Extended queryset for MeasureUnit model."""
 
@@ -122,6 +123,14 @@ class MeasureUnitQuerySet(models.QuerySet):
 
 
 class MeasureUnit(BaseModel):
+    """
+    Единицы измерения
+
+    пример:
+    1. Родитель - title = Бутылка 0.7
+    2. Потомок - parent = Бутылка 0.7, title = мл, ratio = 700
+    те. Бутылка 0.7 = мл * 700 (parent title = children title * ratio)
+    """
     place = models.ForeignKey(
         Place,
         verbose_name='Ресторан',
@@ -129,10 +138,17 @@ class MeasureUnit(BaseModel):
         on_delete=models.CASCADE,
     )
     title = models.CharField('Название', max_length=255, null=False)
-    measurement_system = models.PositiveSmallIntegerField(
-        'Система измерений',
-        choices=MeasurementSystems.MEASUREMENT_SYSTEMS_CHOICES,
-        default=MeasurementSystems.METRIC,
+    ratio = models.PositiveSmallIntegerField(
+        'Коэффициент конвертации',
+        help_text='Число, которое нужно умножить на единицу измерения, чтобы получить единицу родителя'
+    )
+    parent = models.ForeignKey(
+        'self',
+        related_name='children',
+        on_delete=models.CASCADE,
+        blank=True,
+        null=True,
+        default=None,
     )
 
     objects = MeasureUnitQuerySet.as_manager()
@@ -146,15 +162,20 @@ class MeasureUnit(BaseModel):
         return self.title
 
 
-class ProductGroupQuerySet(models.QuerySet):
-    """Extended queryset for ProductGroup model."""
+class NomenclatureGroupQuerySet(models.QuerySet):
+    """Extended queryset for NomenclatureGroup model."""
 
     def active(self):
-        """Return not deleted product groups"""
+        """Return not deleted nomenclature groups"""
         return self.filter(deleted_at=None)
 
 
-class ProductGroup(BaseModel):
+class NomenclatureGroup(BaseModel):
+    """
+    Номенклатурная группа
+
+    пример: говядина, соль, хлеб белый
+    """
     place = models.ForeignKey(
         Place,
         verbose_name='Ресторан',
@@ -163,6 +184,13 @@ class ProductGroup(BaseModel):
     )
     vendor_code = models.PositiveIntegerField('Артикул')
     title = models.CharField('Название', max_length=255, null=False)
+    default_department = models.ForeignKey(
+        Department,
+        verbose_name='Департамент',
+        help_text='Департамент, в который попадает номенклатура при приемке на склад',
+        related_name='groups',
+        on_delete=models.CASCADE,
+    )
     shelf_life = models.PositiveSmallIntegerField(
         'Базовый срок хранения',
         help_text='В днях',
@@ -185,6 +213,8 @@ class ProductGroup(BaseModel):
         null=True,
         default=None,
     )
+
+    # measure_unit_small должна выбираться из потомка MeasureUnit выбранного в поле выше (measure_unit)
     measure_unit_small = models.ForeignKey(
         MeasureUnit,
         verbose_name='Единица измерения для малых порций',
@@ -194,12 +224,13 @@ class ProductGroup(BaseModel):
         null=True,
         default=None,
     )
+    markup = models.DecimalField('Наценка %', max_digits=5, decimal_places=2)
 
-    objects = ProductGroupQuerySet.as_manager()
+    objects = NomenclatureGroupQuerySet.as_manager()
 
     class Meta:
-        verbose_name = 'Группа товаров'
-        verbose_name_plural = 'Группы товаров'
+        verbose_name = 'Номенклатурная группа'
+        verbose_name_plural = 'Номенклатурные группы'
         ordering = ['vendor_code', 'title']
 
     def __str__(self):
@@ -215,32 +246,18 @@ class ProductPhotoQuerySet(models.QuerySet):
 
 
 class ProductPhoto(BaseModel):
+    """
+    Фото для номенклатурной группы
+    """
     image_url = models.URLField('Изображение продукта')
+    nomenclature_group = models.ForeignKey(
+        NomenclatureGroup,
+        verbose_name='Номенклатурная группа',
+        related_name='photos',
+        on_delete=models.CASCADE,
+    )
 
     objects = ProductPhotoQuerySet.as_manager()
-
-    class Meta:
-        verbose_name = 'Накладная'
-        verbose_name_plural = 'Накладные'
-
-    def __str__(self):
-        return self.image_url
-
-
-class InvoiceQuerySet(models.QuerySet):
-    """Extended queryset for Invoice model."""
-
-    def active(self):
-        """Return not deleted invoices"""
-        return self.filter(deleted_at=None)
-
-
-class Invoice(BaseModel):
-    image_url = models.URLField('Изображение накладной')
-    invoice_number = models.CharField('Номер накладной', max_length=255, blank=True, null=True, default=None)
-    invoice_data = models.DateField('Накладная от')
-
-    objects = InvoiceQuerySet.as_manager()
 
     class Meta:
         verbose_name = 'Накладная'
@@ -259,6 +276,9 @@ class ProviderQuerySet(models.QuerySet):
 
 
 class Provider(BaseModel):
+    """
+    Поставщик
+    """
     place = models.ForeignKey(
         Place,
         verbose_name='Ресторан',
@@ -283,15 +303,79 @@ class Provider(BaseModel):
         return self.title
 
 
-class ProductQuerySet(models.QuerySet):
-    """Extended queryset for Product model."""
+class InvoiceQuerySet(models.QuerySet):
+    """Extended queryset for Invoice model."""
 
     def active(self):
-        """Return not deleted products"""
+        """Return not deleted invoices"""
         return self.filter(deleted_at=None)
 
 
-class Product(BaseModel):
+class Invoice(BaseModel):
+    """
+    Накладная
+    """
+    provider = models.ForeignKey(
+        Provider,
+        verbose_name='Поставщик',
+        related_name='invoices',
+        on_delete=models.CASCADE,
+    )
+    invoice_number = models.CharField('Номер накладной', max_length=255, blank=True, null=True, default=None)
+    invoice_data = models.DateField('Накладная от')
+
+    objects = InvoiceQuerySet.as_manager()
+
+    class Meta:
+        verbose_name = 'Накладная'
+        verbose_name_plural = 'Накладные'
+
+    def __str__(self):
+        return f'{self.invoice_number} от {self.invoice_data}'
+
+
+class InvoicePhotoQuerySet(models.QuerySet):
+    """Extended queryset for InvoicePhoto model."""
+
+    def active(self):
+        """Return not deleted photos"""
+        return self.filter(deleted_at=None)
+
+
+class InvoicePhoto(BaseModel):
+    """
+    Фотки накладной
+    """
+    image_url = models.URLField('Изображение накладной')
+    invoice = models.ForeignKey(
+        Invoice,
+        verbose_name='Накладная',
+        related_name='photos',
+        on_delete=models.CASCADE,
+    )
+
+    objects = InvoicePhotoQuerySet.as_manager()
+
+    class Meta:
+        verbose_name = 'Накладная'
+        verbose_name_plural = 'Накладные'
+
+    def __str__(self):
+        return self.image_url
+
+
+class NomenclatureQuerySet(models.QuerySet):
+    """Extended queryset for Nomenclature model."""
+
+    def active(self):
+        """Return not deleted nomenclatures"""
+        return self.filter(deleted_at=None)
+
+
+class Nomenclature(BaseModel):
+    """
+    Номенклатура
+    """
     invoice = models.ForeignKey(
         Invoice,
         verbose_name='Накладная',
@@ -310,32 +394,34 @@ class Product(BaseModel):
         null=True,
         default=None,
     )
-    department = models.ForeignKey(
-        Department,
-        verbose_name='Департамент',
+    nomenclature_group = models.ForeignKey(
+        NomenclatureGroup,
+        verbose_name='Номенклатурная группа',
         related_name='products',
         on_delete=models.PROTECT,
     )
-    product_group = models.ForeignKey(
-        ProductGroup,
-        verbose_name='Группа товаров',
-        related_name='products',
+    # Единица измерения должна выбираться из доступных единиц измерения номенклатурной группы
+    measure_unit = models.ForeignKey(
+        MeasureUnit,
+        verbose_name='Единица измерения',
+        related_name='nomenclatures',
         on_delete=models.PROTECT,
     )
     net_weight = models.FloatField('Масса нетто')
     gross_weight = models.FloatField('Масса брутто')
     date_of_manufacture = models.DateTimeField('Время изготовления')
     expiration_date = models.PositiveIntegerField('Срок годности', help_text='В днях')
-    price = models.DecimalField('Цена', max_digits=7, decimal_places=2)
+    price = models.DecimalField('Цена', max_digits=9, decimal_places=2)
+    price_without = models.DecimalField('Цена без НДС', max_digits=9, decimal_places=2)
 
-    objects = ProductQuerySet.as_manager()
+    objects = NomenclatureQuerySet.as_manager()
 
     class Meta:
-        verbose_name = 'Продукт'
-        verbose_name_plural = 'Продукты'
+        verbose_name = 'Номенклатура'
+        verbose_name_plural = 'Номенклатура'
 
     def __str__(self):
-        return self.product_group.title
+        return self.nomenclature_group.title
 
 
 class ReasonForWriteOffQuerySet(models.QuerySet):
@@ -347,6 +433,12 @@ class ReasonForWriteOffQuerySet(models.QuerySet):
 
 
 class ReasonForWriteOff(BaseModel):
+    """
+    Причина списания номенклатуры,
+    предполагается что это будет стандартный набор причин,
+    поэтому возможно их придется заполнить при создании таблицы
+    или вообще вынести в переменную.
+    """
     title = models.CharField('Название', max_length=255, null=False)
 
     objects = ReasonForWriteOffQuerySet.as_manager()
@@ -368,9 +460,18 @@ class WriteOffHistoryQuerySet(models.QuerySet):
 
 
 class WriteOffHistory(BaseModel):
-    product = models.ForeignKey(
-        Product,
-        verbose_name='Продукт',
+    nomenclature_group = models.ForeignKey(
+        NomenclatureGroup,
+        verbose_name='Номенклатурная группа',
+        related_name='writeoffs',
+        on_delete=models.PROTECT,
+    )
+
+    # При списании необходимо привязываться к номенклатуре, иначе
+    # не получится управлять просрочкой
+    nomenclature = models.ForeignKey(
+        Nomenclature,
+        verbose_name='Номенклатура',
         related_name='writeoffs',
         on_delete=models.SET_NULL,
         blank=True,
@@ -380,13 +481,18 @@ class WriteOffHistory(BaseModel):
     reason = models.ForeignKey(
         ReasonForWriteOff,
         verbose_name='Продукт',
-        related_name='write_offs',
-        on_delete=models.SET_NULL,
-        blank=True,
-        null=True,
-        default=None,
+        related_name='writeoffs',
+        on_delete=models.PROTECT,
     )
     comment = models.TextField('Комментарий')
+
+    # Единица измерения должна выбираться из доступных единиц измерения номенклатурной группы
+    measure_unit = models.ForeignKey(
+        MeasureUnit,
+        verbose_name='Единица измерения',
+        related_name='writeoffs',
+        on_delete=models.PROTECT,
+    )
     net_weight = models.FloatField('Масса нетто')
     gross_weight = models.FloatField('Масса брутто')
 
@@ -397,7 +503,7 @@ class WriteOffHistory(BaseModel):
         verbose_name_plural = 'История списаний'
 
     def __str__(self):
-        return str(self.product.id)
+        return self.nomenclature_group.title
 
 
 class MovementHistoryQuerySet(models.QuerySet):
@@ -409,22 +515,49 @@ class MovementHistoryQuerySet(models.QuerySet):
 
 
 class MovementHistory(BaseModel):
-    product = models.ForeignKey(
-        Product,
-        verbose_name='Продукт',
-        related_name='write_offs',
+    """
+    Перемещение
+    """
+    from_department = models.ForeignKey(
+        Department,
+        verbose_name='Перемещение из',
+        related_name='frommovements',
         on_delete=models.CASCADE,
     )
-    net_weight = models.FloatField('Масса нетто')
-    gross_weight = models.FloatField('Масса брутто')
-    measure_unit = models.ForeignKey(
-        MeasureUnit,
-        verbose_name='Единица измерения',
+    to_department = models.ForeignKey(
+        Department,
+        verbose_name='Перемещение в',
+        related_name='tomovements',
+        on_delete=models.CASCADE,
+    )
+    nomenclature_group = models.ForeignKey(
+        NomenclatureGroup,
+        verbose_name='Номенклатурная группа',
+        related_name='movements',
         on_delete=models.PROTECT,
+    )
+
+    # При списании необходимо привязываться к номенклатуре, иначе
+    # не получится управлять просрочкой
+    nomenclature = models.ForeignKey(
+        Nomenclature,
+        verbose_name='Номенклатура',
+        related_name='movements',
+        on_delete=models.SET_NULL,
         blank=True,
         null=True,
         default=None,
     )
+
+    # Единица измерения должна выбираться из доступных единиц измерения номенклатурной группы
+    measure_unit = models.ForeignKey(
+        MeasureUnit,
+        verbose_name='Единица измерения',
+        related_name='movements',
+        on_delete=models.PROTECT,
+    )
+    net_weight = models.FloatField('Масса нетто')
+    gross_weight = models.FloatField('Масса брутто')
     comment = models.TextField('Комментарий')
 
     objects = MovementHistoryQuerySet.as_manager()
@@ -434,4 +567,4 @@ class MovementHistory(BaseModel):
         verbose_name_plural = 'История перемещений'
 
     def __str__(self):
-        return str(self.product.id)
+        return self.nomenclature_group.title

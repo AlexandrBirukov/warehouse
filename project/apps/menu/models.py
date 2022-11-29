@@ -1,7 +1,7 @@
 from django.db import models
 
 from project.apps.place.models import Place
-from project.apps.warehouse.models import ProductGroup
+from project.apps.warehouse.models import NomenclatureGroup, MeasureUnit
 from project.utils.models import BaseModel
 
 
@@ -61,24 +61,27 @@ class Dish(BaseModel):
         return self.title
 
 
-class IngredientQuerySet(models.QuerySet):
-    """Extended queryset for Ingredient model."""
+class ModifierQuerySet(models.QuerySet):
+    """Extended queryset for Modifier model."""
 
     def active(self):
-        """Return not deleted ingredients"""
+        """Return not deleted modifiers"""
         return self.filter(deleted_at=None)
 
 
-class Ingredient(BaseModel):
+class Modifier(BaseModel):
+    """
+    Модификатор
+    """
     dish = models.ForeignKey(
         Dish,
         verbose_name='Блюдо',
-        related_name='dishes',
+        related_name='modifiers',
         on_delete=models.CASCADE,
     )
     title = models.CharField('Название', max_length=255, null=False)
 
-    objects = IngredientQuerySet.as_manager()
+    objects = ModifierQuerySet.as_manager()
 
     class Meta:
         verbose_name = 'Блюдо'
@@ -98,40 +101,118 @@ class TechMapQuerySet(models.QuerySet):
 
 
 class TechMap(BaseModel):
-    dish = models.ForeignKey(
+    """
+    Тех.карта
+    """
+    dish = models.OneToOneField(
         Dish,
         verbose_name='Блюдо',
-        related_name='techmaps',
-        on_delete=models.SET_NULL,
-        blank=True,
-        null=True,
-        default=None,
+        on_delete=models.CASCADE,
     )
-    ingredient = models.ForeignKey(
-        Ingredient,
-        verbose_name='Ингредиент',
-        related_name='techmaps',
-        on_delete=models.SET_NULL,
-        blank=True,
-        null=True,
-        default=None,
-    )
-    product_group = models.ForeignKey(
-        ProductGroup,
-        verbose_name='Продукт',
+    description = models.TextField('Описание')
+    measure_unit = models.ForeignKey(
+        MeasureUnit,
+        verbose_name='Единица измерения',
         related_name='techmaps',
         on_delete=models.PROTECT,
     )
-    net_weight = models.FloatField('Масса нетто')
-    gross_weight = models.FloatField('Масса брутто')
+    output = models.FloatField('Суммарный выход продукта')
+    price = models.DecimalField('Розничная цена', max_digits=9, decimal_places=2)
+    bookmark_rate = models.PositiveSmallIntegerField('Норма закладки (порций)')
+
+    objects = TechMapQuerySet.as_manager()
+
+    class Meta:
+        verbose_name = 'Тех.карта'
+        verbose_name_plural = 'Тех.карты'
+
+    def __str__(self):
+        return self.dish.title
+
+
+class TechMapPhotoQuerySet(models.QuerySet):
+    """Extended queryset for TechMapPhoto model."""
+
+    def active(self):
+        """Return not deleted photos"""
+        return self.filter(deleted_at=None)
+
+
+class TechMapPhoto(BaseModel):
+    """
+    Фотки накладной
+    """
+    image_url = models.URLField('Изображение накладной')
+    tech_map = models.ForeignKey(
+        TechMap,
+        verbose_name='Тех.карта',
+        related_name='photos',
+        on_delete=models.CASCADE,
+    )
+
+    objects = TechMapPhotoQuerySet.as_manager()
+
+    class Meta:
+        verbose_name = 'Фото тех.карты'
+        verbose_name_plural = 'Фото тех.карты'
+
+    def __str__(self):
+        return self.image_url
+
+
+class IngredientQuerySet(models.QuerySet):
+    """Extended queryset for Ingredient model."""
+
+    def active(self):
+        """Return not deleted ingredients"""
+        return self.filter(deleted_at=None)
+
+
+class Ingredient(BaseModel):
+    """
+    Ингредиенты тех.карты
+    """
+    dish = models.ForeignKey(
+        Dish,
+        verbose_name='Блюдо',
+        related_name='ingredients',
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        default=None,
+    )
+    modifier = models.ForeignKey(
+        Modifier,
+        verbose_name='Модификатор',
+        related_name='ingredients',
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        default=None,
+    )
+    nomenclature_group = models.ForeignKey(
+        NomenclatureGroup,
+        verbose_name='Номенклатурная группа',
+        related_name='ingredients',
+        on_delete=models.PROTECT,
+    )
+
+    # Единица измерения должна выбираться из доступных единиц измерения номенклатурной группы
+    measure_unit = models.ForeignKey(
+        MeasureUnit,
+        verbose_name='Единица измерения',
+        related_name='ingredients',
+        on_delete=models.PROTECT,
+    )
+    amount = models.FloatField('Количество', default=1)
     done_weight = models.FloatField('Выход готового продукта')
     uncritical = models.BooleanField('Не критичный для приготовления', default=False)
 
     objects = IngredientQuerySet.as_manager()
 
     class Meta:
-        verbose_name = 'Блюдо'
-        verbose_name_plural = 'Блюда'
+        verbose_name = 'Ингредиент'
+        verbose_name_plural = 'Ингредиенты'
 
     def __str__(self):
-        return self.product_group.title
+        return self.nomenclature_group.title
